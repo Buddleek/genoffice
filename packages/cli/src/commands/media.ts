@@ -2,7 +2,7 @@ import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { analyzeMediaTool, localMediaRoots } from '@genoffice/ai-search'
 import { flagString } from '../args'
-import { aiSettingsPath, prepareCloud } from '../cloud'
+import { aiSettingsPath } from '../cloud'
 import { resolveInput } from '../fs'
 import type { CommandDef } from '../registry'
 import { CliError, EXIT } from '../result'
@@ -26,7 +26,6 @@ export const mediaCommand: CommandDef = {
     const target = /^https?:\/\//i.test(ref)
       ? ref
       : resolveInput(ref.startsWith('file:') ? fileURLToPath(ref) : ref, ctx)
-    await prepareCloud(ctx.env)
     // the user named this file on the command line, so its own directory is the
     // allowlist: an http(s) target is fetched remotely and has no local root
     const mediaRoots = localMediaRoots(/^https?:\/\//i.test(target) ? undefined : dirname(target))
@@ -41,7 +40,7 @@ export const mediaCommand: CommandDef = {
     if (r.text === undefined)
       throw new CliError(EXIT.app, r.error ?? 'media analysis failed', undefined, {
         suggestion:
-          'retry once later; if it persists, check the Genspark login in the GenOffice app or configure a BYOK analysis provider under Settings (AI Media)',
+          'retry once later; if it persists, configure an analysis provider under Settings (AI Media) in the GenOffice app',
       })
     const failure = providerFailure(r.text)
     if (failure) throw new CliError(EXIT.conversion, `media analysis failed: ${failure}`)
@@ -53,7 +52,7 @@ export const mediaCommand: CommandDef = {
   },
 }
 
-/** Genspark reports a fetch/analysis failure as { status: "error", error|message } per file. */
+/** An analysis failure is reported as an error result; BYOK providers surface the vendor message. */
 export function providerFailure(text: string): string | null {
   if (!text.trimStart().startsWith('{')) return null
   try {
@@ -68,7 +67,7 @@ export function providerFailure(text: string): string | null {
   }
 }
 
-/** Genspark answers with a JSON map of upload → { analysis }; BYOK providers with prose. */
+/** BYOK providers answer with prose. */
 export function analysisText(text: string): string {
   if (!text.trimStart().startsWith('{')) return text
   try {

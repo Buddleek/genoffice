@@ -1,23 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import * as aiSearch from '@genoffice/ai-search'
+import { describe, expect, it } from 'vitest'
 import { run, tempDir } from './helpers'
-
-// hasGskAuth reads process.env, not the command context: isolate the login state per test
-const saved: Record<string, string | undefined> = {}
-beforeEach(() => {
-  for (const k of ['GENOFFICE_AUTH_DIR', 'AI_SEARCH_DISABLE_GSK']) saved[k] = process.env[k]
-  process.env.GENOFFICE_AUTH_DIR = join(tempDir(), 'no-auth')
-  process.env.AI_SEARCH_DISABLE_GSK = '1'
-})
-afterEach(() => {
-  vi.restoreAllMocks()
-  for (const [k, v] of Object.entries(saved)) {
-    if (v === undefined) delete process.env[k]
-    else process.env[k] = v
-  }
-})
 
 // a real settings file always carries the chat provider block; without it every section resets to defaults
 function settingsFile(dir: string, settings: Record<string, unknown>): string {
@@ -27,7 +11,7 @@ function settingsFile(dir: string, settings: Record<string, unknown>): string {
 }
 
 describe('genoffice capabilities', () => {
-  it('reports nothing configured when signed out with default settings', async () => {
+  it('reports keyless Parallel search only when nothing else is configured', async () => {
     const dir = tempDir()
     const r = await run(['capabilities', '--json'], {
       env: {
@@ -38,7 +22,8 @@ describe('genoffice capabilities', () => {
     })
     expect(r.code).toBe(0)
     const d = r.json().detail
-    expect(d.search.available).toBe(false)
+    // Parallel rides the free Search MCP with no key, so web search still works
+    expect(d.search).toEqual({ available: true, via: 'parallel' })
     expect(d.image_search.available).toBe(false)
     expect(d.image_generation.available).toBe(false)
     expect(d.media_analysis.available).toBe(false)
@@ -69,7 +54,8 @@ describe('genoffice capabilities', () => {
     expect(d.search).toEqual({ available: true, via: 'serper' })
     expect(d.image_search).toEqual({ available: true, via: 'serper' })
     expect(d.image_generation).toEqual({ available: true, via: 'openai' })
-    expect(d.media_analysis.available).toBe(false)
+    // the openai analysis slot rides the same configured key and its default model
+    expect(d.media_analysis).toEqual({ available: true, via: 'openai' })
     expect(d.app.available).toBe(true)
     expect(r.json().summary).toContain('image_generation')
   })
@@ -102,25 +88,7 @@ describe('genoffice capabilities', () => {
     expect(d.image_search.available).toBe(false)
   })
 
-  it.each(['tavily', 'parallel'])(
-    '%s does not advertise Genspark image search when signed in',
-    async (provider) => {
-      vi.spyOn(aiSearch, 'hasGskAuth').mockReturnValue(true)
-      const settings = settingsFile(tempDir(), {
-        search: { provider, providers: { [provider]: { apiKey: 'test-key' } } },
-      })
-      const r = await run(['capabilities', '--json'], {
-        env: { ...process.env, GENOFFICE_AI_SETTINGS: settings },
-      })
-      const d = r.json().detail
-      expect(d.search).toEqual({ available: true, via: provider })
-      expect(d.image_search).toEqual({ available: false, via: null })
-      expect(d.image_generation).toEqual({ available: true, via: 'genspark' })
-      expect(d.media_analysis).toEqual({ available: true, via: 'genspark' })
-    },
-  )
-
-  it('reports selected keyless Parallel as web search without requiring a login', async () => {
+  it('reports selected keyless Parallel as web search without requiring a key', async () => {
     const settings = settingsFile(tempDir(), {
       search: { provider: 'parallel', providers: { parallel: { apiKey: '' } } },
     })
@@ -129,5 +97,19 @@ describe('genoffice capabilities', () => {
     })
     expect(r.json().detail.search).toEqual({ available: true, via: 'parallel' })
     expect(r.json().detail.image_search).toEqual({ available: false, via: null })
+  })
+
+  it('counts a BYOK analysis provider as media analysis', async () => {
+    const settings = settingsFile(tempDir(), {
+      media: {
+        analysisProvider: 'gemini',
+        providers: { gemini: { apiKey: 'AIza', analysisModel: 'gemini-3.8-flash' } },
+      },
+    })
+    const r = await run(['capabilities', '--json'], {
+      env: { ...process.env, GENOFFICE_AI_SETTINGS: settings },
+    })
+    const d = r.json().detail
+    expect(d.media_analysis).toEqual({ available: true, via: 'gemini' })
   })
 })

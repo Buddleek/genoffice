@@ -112,7 +112,6 @@ export function sanitizeAiSettings(input: unknown): AiSettings | null {
     provider: provider as AiProviderId,
     providers,
   }
-  if (typeof raw.gskToolsEnabled === 'boolean') settings.gskToolsEnabled = raw.gskToolsEnabled
   if (
     typeof raw.maxOutputTokens === 'number' &&
     Number.isFinite(raw.maxOutputTokens) &&

@@ -17,7 +17,6 @@ export const ru = {
   aiQcPageSkipped: 'Страница {n}: автоматическая проверка макета пропущена',
   aiQcStopped: 'Проверка макета остановлена',
   aiQcCapped: 'Ещё {count} стр. не проверено (лимит за один запуск)',
-  aiGskLoginBtn: 'Войти в Genspark',
   aiPanelTitle: 'Genspark',
   aiOpenAssistant: 'Открыть ИИ-помощника',
   aiFactCheckBtn: 'ИИ-фактчекинг',
@@ -224,5 +223,4 @@ export const ru = {
   aiSumSaveTemplate: 'Сохранён шаблон стиля «{name}»',
   aiSumTemplatesEmpty: 'Шаблоны стиля (пусто)',
   aiSumListTemplates: 'Показано шаблонов стиля: {count}',
-  aiPageCloudToLocal: 'Облако недоступно — создано локально',
 } satisfies Record<keyof typeof zh, string>

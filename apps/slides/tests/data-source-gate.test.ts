@@ -66,6 +66,8 @@ function mkAccess(extra: Record<string, unknown> = {}): DeckAccess {
     applyDeck: () => {},
     fitWidthPx: 1280,
     retryBackoffMs: 0,
+    generatePageLocal: async () => ({ ok: true, marker: 'localpptx:/tmp/p.pptx' }),
+    regenerateSlide: async () => ({ ok: true }),
     ...extra,
   } as unknown as DeckAccess
 }
@@ -158,11 +160,10 @@ describe('edit_chart provenance gate', () => {
 })
 
 describe('brief provenance gate (regenerate_slide / generate_deck)', () => {
+  // a working redo pipeline: the provenance gate fires before any generation,
+  // so figure-dense briefs are refused without reaching the builder
   const cloudAccess = () =>
     mkAccess({
-      regenerateSlide: async () => null,
-      generatePageCloud: async () => ({ ok: false, error: 'cloud down' }),
-      isCloudPageGenEnabled: async () => true,
       landGeneratedPages: async () => ({ ok: true, pages: 1 }),
     })
 

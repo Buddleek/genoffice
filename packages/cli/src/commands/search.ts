@@ -1,13 +1,13 @@
 import { imageSearchTool, webSearchTool } from '@genoffice/ai-search'
 import { flagBool, flagString } from '../args'
-import { aiSettingsPath, prepareCloud } from '../cloud'
+import { aiSettingsPath } from '../cloud'
 import type { CommandDef } from '../registry'
 import { CliError, EXIT } from '../result'
 
 export const searchCommand: CommandDef = {
   name: 'search',
   summary:
-    'Web or image search through the provider configured in GenOffice (Genspark, Serper, Serply, Tavily, Parallel).',
+    'Web or image search through the provider configured in GenOffice (Serper, Serply, Tavily, Parallel, Exa, Firecrawl).',
   usage: 'search <query> [--images] [--max <n>]',
   options: [
     { name: 'images', description: 'search images instead of web pages' },
@@ -18,7 +18,6 @@ export const searchCommand: CommandDef = {
     if (!query)
       throw new CliError(EXIT.usage, 'missing <query>', undefined, { reason: 'missing_argument' })
     const max = resultCount(flagString(args, 'max'))
-    await prepareCloud(ctx.env)
     const settings = aiSettingsPath(ctx.env)
     if (flagBool(args, 'images')) {
       const r = await imageSearchTool(settings, query, max ?? 8)
