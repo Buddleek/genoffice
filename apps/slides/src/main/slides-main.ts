@@ -138,6 +138,8 @@ import {
 import { DEFAULT_PICTURE_DPI, pictureFrame } from './picture-frame'
 import { refineComplexWidths, shapedMetricsReady } from './shaped-metrics'
 import { cfbKind, isCfbHeader } from './cfb-sniff'
+import { buildPptxFromSlideTexts, writePptImportCopy } from './ppt-import'
+import { pptToSlideTexts } from '@genoffice/file-parse'
 import { unplayableAudioCodec } from './mp4-audio-sniff'
 import { audioFrame, videoFrame, videoSize, type Point, type Size } from './video-size'
 import { AUDIO_EXTS, VIDEO_EXTS } from '../shared/media-kinds'
@@ -418,6 +420,8 @@ function trackSlidesWebContents(wc: WebContents): void {
     const s = sessions.get(wc.id)
     if (s && !sessionDirty(s)) dropUntitledRecovery(wc.id)
     else untitledRecovery.delete(wc.id)
+    // a converted-copy session (.ppt import) dies with its app-owned temp directory
+    if (s?.importTempDir) void rm(s.importTempDir, { recursive: true, force: true }).catch(() => {})
     sessions.delete(wc.id)
     pendingByWc.delete(wc.id)
     lastSlidePaste.delete(wc.id)
@@ -760,11 +764,18 @@ async function maybeRecoverBytes(
 }
 
 /**
- * .ppt (97-2003 binary compound document) and encrypted OOXML are unsupported: show an actionable message instead of a parse error.
- * Detection uses the magic number rather than the extension -- a binary ppt with a renamed suffix is caught too. A CFB containing an
- * EncryptedPackage stream is a password-protected pptx and gets dedicated copy (instead of being mislabeled as the legacy format).
+ * Legacy .ppt (97-2003 binary compound document) handling on open. Detection
+ * uses the magic number rather than the extension — a binary ppt with a renamed
+ * suffix is caught too. A CFB containing an EncryptedPackage stream is a
+ * password-protected pptx and keeps its dedicated refusal (there is no legacy
+ * reader for it); a genuine legacy .ppt converts once into a real .pptx copy in
+ * an app-owned temp directory, which the session then opens (the original file
+ * stays untouched; the first save routes through Save As via importedFrom).
+ * Returns null when the open must not proceed.
  */
-async function rejectLegacyPpt(path: string): Promise<boolean> {
+async function preparePptForOpen(
+  path: string,
+): Promise<{ openPath: string; importedFrom?: string; importTempDir?: string } | null> {
   let head: Buffer
   try {
     const fh = await open(path, 'r')
@@ -775,25 +786,46 @@ async function rejectLegacyPpt(path: string): Promise<boolean> {
       await fh.close()
     }
   } catch {
-    return false
+    return { openPath: path }
   }
-  if (!isCfbHeader(head)) return false
+  if (!isCfbHeader(head)) return { openPath: path }
   let kind: 'legacy' | 'encrypted' = 'legacy'
+  let raw: Buffer | null = null
   try {
-    kind = cfbKind(await readFile(path)) ?? 'legacy'
+    raw = await readFile(path)
+    kind = cfbKind(raw) ?? 'legacy'
   } catch {
     // on read failure, fall back to the legacy-format message
   }
+  if (kind === 'encrypted') {
+    await showLegacyPptMessage('encryptedPptxTitle', 'encryptedPptxBody')
+    return null
+  }
+  try {
+    if (!raw) throw new Error('unreadable file')
+    const texts = await pptToSlideTexts(new Uint8Array(raw))
+    const pptx = await buildPptxFromSlideTexts(texts)
+    const copy = await writePptImportCopy(path, pptx)
+    return { openPath: copy.openPath, importedFrom: path, importTempDir: copy.tempDir }
+  } catch {
+    await showLegacyPptMessage('legacyPptTitle', 'legacyPptBody')
+    return null
+  }
+}
+
+async function showLegacyPptMessage(
+  titleKey: 'legacyPptTitle' | 'encryptedPptxTitle',
+  bodyKey: 'legacyPptBody' | 'encryptedPptxBody',
+): Promise<void> {
   const parent = dialogParent()
   const options = {
     type: 'warning' as const,
     buttons: [tm('legacyPptOk')],
-    message: tm(kind === 'encrypted' ? 'encryptedPptxTitle' : 'legacyPptTitle'),
-    detail: tm(kind === 'encrypted' ? 'encryptedPptxBody' : 'legacyPptBody'),
+    message: tm(titleKey),
+    detail: tm(bodyKey),
   }
   if (parent) await dialog.showMessageBox(parent, options)
   else await dialog.showMessageBox(options)
-  return true
 }
 
 /** Register the deck's usable embedded fonts before layout; new faces invalidate cached metrics. */
@@ -824,6 +856,7 @@ async function openAndBuild(
   wc: WebContents,
   path: string,
   fitWidthPx: number,
+  imported?: { importedFrom: string; importTempDir: string },
 ): Promise<OpenResult> {
   // Same file already open in another window: attach to that session instead of
   // opening an independent copy (which would silently lose the loser's edits on
@@ -834,8 +867,8 @@ async function openAndBuild(
     if (id === wc.id || !existing.path || resolve(existing.path) !== wanted) continue
     sessions.set(wc.id, existing)
     scheduleHistoryNotify(existing)
-    await pushRecent(path)
-    slidesOpenedHook?.(wc, path)
+    await pushRecent(existing.importedFrom ?? path)
+    slidesOpenedHook?.(wc, existing.importedFrom ?? path)
     return {
       path: existing.path,
       slides: buildAllRenderSlides(existing.opened, fitWidthPx),
@@ -860,10 +893,13 @@ async function openAndBuild(
     undoStack: [],
     redoStack: [],
     ...(recovered ? { metaDirty: true } : {}),
+    ...imported,
   })
   scheduleHistoryNotify(sessions.get(wc.id)!)
-  await pushRecent(path)
-  slidesOpenedHook?.(wc, path)
+  // a converted-copy session is not a file on disk: recents and the shell tab
+  // stay on the original .ppt the user opened
+  await pushRecent(imported?.importedFrom ?? path)
+  slidesOpenedHook?.(wc, imported?.importedFrom ?? path)
   let slides = buildAllRenderSlides(opened, fitWidthPx)
   // If the first layout pass had complex-script misses (Arabic/Thai etc.), re-lay out once with renderer-measured widths
   if (await refineComplexWidths(wc)) slides = buildAllRenderSlides(opened, fitWidthPx)
@@ -1385,14 +1421,30 @@ export function registerSlidesIpc(): void {
     }
     const r = await showOpenDialogWithMemory(dialog, parent, options)
     if (r.canceled || !r.filePaths[0]) return null
-    if (await rejectLegacyPpt(r.filePaths[0])) return null
-    return openAndBuild(e.sender, r.filePaths[0], fitWidthPx)
+    const prepared = await preparePptForOpen(r.filePaths[0])
+    if (!prepared) return null
+    return openAndBuild(
+      e.sender,
+      prepared.openPath,
+      fitWidthPx,
+      prepared.importedFrom && prepared.importTempDir
+        ? { importedFrom: prepared.importedFrom, importTempDir: prepared.importTempDir }
+        : undefined,
+    )
   })
 
   ipcMain.handle('slides:open-path', async (e, path: string, fitWidthPx: number) => {
     if (!path || !existsSync(path)) return null
-    if (await rejectLegacyPpt(path)) return null
-    return openAndBuild(e.sender, path, fitWidthPx)
+    const prepared = await preparePptForOpen(path)
+    if (!prepared) return null
+    return openAndBuild(
+      e.sender,
+      prepared.openPath,
+      fitWidthPx,
+      prepared.importedFrom && prepared.importTempDir
+        ? { importedFrom: prepared.importedFrom, importTempDir: prepared.importTempDir }
+        : undefined,
+    )
   })
 
   ipcMain.handle('slides:consume-pending-open', async (e, fitWidthPx: number) => {
@@ -1405,14 +1457,23 @@ export function registerSlidesIpc(): void {
         if (pendingByWc.get(e.sender.id) === queued) pendingByWc.delete(e.sender.id)
         if (pendingOpenPath === queued) pendingOpenPath = null
       }
-      // A CFB file (legacy .ppt / encrypted, possibly misnamed .pptx) can never
-      // parse: tell the user and drop it, or every relaunch restores a blank tab
-      if (await rejectLegacyPpt(queued)) {
+      // A CFB file that cannot open (encrypted OOXML, or a legacy .ppt whose
+      // conversion failed): tell the user and drop it, or every relaunch
+      // restores a blank tab
+      const prepared = await preparePptForOpen(queued)
+      if (!prepared) {
         dropQueued()
         return null
       }
       // Clear the queue only after a successful open: keep it on parse failure or a mid-flight renderer reload, so a remount can retry
-      const result = await openAndBuild(e.sender, queued, fitWidthPx)
+      const result = await openAndBuild(
+        e.sender,
+        prepared.openPath,
+        fitWidthPx,
+        prepared.importedFrom && prepared.importTempDir
+          ? { importedFrom: prepared.importedFrom, importTempDir: prepared.importTempDir }
+          : undefined,
+      )
       dropQueued()
       return result
     }
@@ -4421,9 +4482,15 @@ export function registerSlidesIpc(): void {
     )
   })
 
+  type SessionSaveResult = { ok: boolean; path?: string; error?: string; slides?: RenderSlide[] }
+
   ipcMain.handle('slides:save', async (e) => {
     const session = sessions.get(e.sender.id)
     if (!session) return { ok: false, error: 'no file open' }
+    // A converted-copy session (legacy .ppt import) must not "save" into the
+    // temp directory that dies with the tab: the first save routes through
+    // Save As, defaulting to a .pptx sibling of the original.
+    if (session.importedFrom) return saveAsFlow(e, session)
     // Untitled (new blank file): the first save lands silently in the drafts folder (Save As keeps its dialog)
     if (!session.path) {
       const draftsDir = getDraftsDir()
@@ -4432,11 +4499,47 @@ export function registerSlidesIpc(): void {
       await pushRecent(session.path)
       slidesOpenedHook?.(e.sender, session.path)
     }
+    return commitSessionSave(e, session, session.path)
+  })
+
+  /** Write the session to a fresh path chosen by the user and re-target the session (shared by Save As and the .ppt import detour). */
+  async function saveAsFlow(
+    e: Electron.IpcMainInvokeEvent,
+    session: Session,
+    defaultName?: string,
+  ): Promise<SessionSaveResult> {
+    const anchor = session.importedFrom ?? session.path
+    const suggested = session.importedFrom
+      ? `${basename(session.importedFrom).replace(/\.[^.]+$/, '')}.pptx`
+      : newDraftFilename()
+    const parent = dialogParent()
+    const options = {
+      defaultPath: saveAsSuggestion(anchor, defaultName ?? suggested),
+      filters: [{ name: 'PowerPoint', extensions: ['pptx'] }],
+    }
+    const r = await showSaveDialogWithMemory(dialog, parent, options, getDraftsDir())
+    if (r.canceled || !r.filePath) return { ok: false }
+    const result = await commitSessionSave(e, session, r.filePath)
+    if (result.ok) {
+      session.importedFrom = undefined
+      session.importTempDir = undefined
+    }
+    return result
+  }
+
+  /** savePptxToFile plus the bookkeeping every save path shares (autosave state, undo bake, attached-surface sync). */
+  async function commitSessionSave(
+    e: Electron.IpcMainInvokeEvent,
+    session: Session,
+    filePath: string,
+  ): Promise<SessionSaveResult> {
     try {
+      const previous = session.path
       const metaRevAtSave = session.metaRev ?? 0
-      await savePptxToFile(session.opened, session.path)
-      autosaveBackoff.delete(session.path)
-      void rm(autosavePathFor(session.path), { force: true }).catch(() => {})
+      await savePptxToFile(session.opened, filePath)
+      session.path = filePath
+      autosaveBackoff.delete(filePath)
+      void rm(autosavePathFor(filePath), { force: true }).catch(() => {})
       dropUntitledRecovery(e.sender.id)
       // Bake the saved patches back into the in-memory model (clears dirty, syncs
       // anchor.originalXml with disk) — a full reopen would re-read and unzip the
@@ -4444,46 +4547,25 @@ export function registerSlidesIpc(): void {
       // but the renderer still expects the render tree in the response.
       commitSaved(session.opened)
       if ((session.metaRev ?? 0) === metaRevAtSave) session.metaDirty = false
+      if (filePath !== previous) {
+        await pushRecent(filePath)
+        syncAttachedPaths(session, filePath)
+      }
       return {
         ok: true,
-        path: session.path,
+        path: filePath,
         slides: buildAllRenderSlides(session.opened, session.fitWidthPx),
       }
     } catch (err) {
       return { ok: false, error: String(err) }
     }
-  })
+  }
 
   ipcMain.handle('slides:save-as', async (e, defaultName: string) => {
     const session = sessions.get(e.sender.id)
     if (!session) return { ok: false, error: 'no file open' }
-    const parent = dialogParent()
-    const options = {
-      defaultPath: saveAsSuggestion(session.path, defaultName),
-      filters: [{ name: 'PowerPoint', extensions: ['pptx'] }],
-    }
-    const r = await showSaveDialogWithMemory(dialog, parent, options, getDraftsDir())
-    if (r.canceled || !r.filePath) return { ok: false }
-    try {
-      const metaRevAtSave = session.metaRev ?? 0
-      await savePptxToFile(session.opened, r.filePath)
-      session.path = r.filePath
-      autosaveBackoff.delete(r.filePath)
-      dropUntitledRecovery(e.sender.id)
-      await pushRecent(r.filePath)
-      syncAttachedPaths(session, r.filePath)
-      commitSaved(session.opened)
-      if ((session.metaRev ?? 0) === metaRevAtSave) session.metaDirty = false
-      return {
-        ok: true,
-        path: r.filePath,
-        slides: buildAllRenderSlides(session.opened, session.fitWidthPx),
-      }
-    } catch (err) {
-      return { ok: false, error: String(err) }
-    }
+    return saveAsFlow(e, session, defaultName)
   })
-
   // ── Export (PDF / images): the renderer renders hi-res PNGs with offscreen Konva; the main process handles dialogs/writing ──
 
   ipcMain.handle('slides:pick-export-dir', async () => {

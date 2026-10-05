@@ -456,6 +456,21 @@ const config = {
       mimeType: 'application/vnd.ms-excel',
     },
     {
+      // opens as a converted copy and saves as .docx (same flow as the .xls import)
+      ext: 'doc',
+      name: 'Word 97-2003 Document',
+      role: 'Editor',
+      icon: 'docx',
+      mimeType: 'application/msword',
+    },
+    {
+      ext: 'ppt',
+      name: 'PowerPoint 97-2003 Presentation',
+      role: 'Editor',
+      icon: 'pptx',
+      mimeType: 'application/vnd.ms-powerpoint',
+    },
+    {
       ext: 'csv',
       name: 'CSV Document',
       role: 'Editor',

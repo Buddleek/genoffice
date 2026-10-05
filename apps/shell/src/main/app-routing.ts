@@ -3,9 +3,12 @@ import type { DocumentTabKind } from '../shared/tabs-api'
 /** Which app opens a path, by file extension. Shared so the open route and the
  *  rename gate cannot drift: a rename that moved a file out of its app would
  *  leave a name the shell can no longer open. */
-const DOCX_RE = /\.docx$/i
+/** docx opens natively; a legacy .doc converts into a .docx copy on open (docs). */
+const DOCX_RE = /\.(docx|doc)$/i
+/** xlsx opens natively; xls/csv/tsv convert into .xlsx copies on open (sheets). */
 const XLSX_RE = /\.(xlsx|xlsm|xls|csv|tsv)$/i
-const PPTX_RE = /\.pptx$/i
+/** pptx opens natively; a legacy .ppt converts into a .pptx copy on open (slides). */
+const PPTX_RE = /\.(pptx|ppt)$/i
 const PDF_RE = /\.pdf$/i
 const HTML_RE = /\.html?$/i
 

@@ -9,6 +9,12 @@ export interface OpenFileResult {
   encrypted?: boolean
   /** content came from a newer crash-recovery copy and still needs an explicit save */
   recovered?: boolean
+  /**
+   * The session edits a converted copy (legacy .doc import): `path` is the temp
+   * .docx and this is the original .doc. The first user save routes through
+   * Save As, defaulting to a .docx sibling of this path.
+   */
+  importedFrom?: string
 }
 
 /** Password-protected (ECMA-376 encrypted) docx: the renderer prompts for the

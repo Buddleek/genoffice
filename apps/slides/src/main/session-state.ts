@@ -53,6 +53,14 @@ export interface Session {
   fitWidthPx: number
   undoStack: HistorySnapshot[]
   redoStack: HistorySnapshot[]
+  /**
+   * Set when the session opened a converted copy (legacy .ppt import): the
+   * first save routes through Save As, defaulting to a .pptx sibling of this
+   * original path. Cleared once the deck lands on a real file.
+   */
+  importedFrom?: string
+  /** App-owned temp directory holding the converted .pptx copy; removed when the session closes. */
+  importTempDir?: string
   /** Nested history transaction used to collapse an AI tool/run into one undo step. */
   historyBatch?: {
     depth: number

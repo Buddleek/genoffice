@@ -26,6 +26,12 @@ export interface DocState {
   isBlank?: boolean
   /** desired open password is set for the next save; toggled via Review > Protect */
   encrypted?: boolean
+  /**
+   * The session edits a converted copy (legacy .doc import): `filePath` is the
+   * temp .docx and this is the original .doc. The first user save routes
+   * through Save As, defaulting to a .docx sibling of this path.
+   */
+  importedFrom?: string
 }
 
 /** A restored recovery snapshot has not reached the original path yet. */

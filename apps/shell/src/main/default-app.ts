@@ -46,6 +46,18 @@ export const OFFICE_TYPES: readonly OfficeType[] = [
     mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     progId: 'PowerPoint Presentation',
   },
+  {
+    ext: 'doc',
+    uti: 'com.microsoft.word.doc',
+    mime: 'application/msword',
+    progId: 'Word 97-2003 Document',
+  },
+  {
+    ext: 'ppt',
+    uti: 'com.microsoft.powerpoint.ppt',
+    mime: 'application/vnd.ms-powerpoint',
+    progId: 'PowerPoint 97-2003 Presentation',
+  },
 ]
 
 const LINUX_DESKTOP_ID = 'genoffice.desktop'

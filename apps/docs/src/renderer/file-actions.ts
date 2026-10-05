@@ -436,6 +436,7 @@ export async function loadFile(
       fileName: result.name,
       hash: result.hash,
       encrypted: result.encrypted,
+      importedFrom: result.importedFrom,
     })
     ctx.onRevisionsLoaded(blocksHaveRevisions(parsed.blocks))
     // this tab's document was replaced: a password parked for the previous
@@ -1019,15 +1020,32 @@ async function saveOnce(
       passwordIntentPending = result.passwordIntentPending === true
       if (result.dataUrl) fullBytes = await fetchDocBytes(result.dataUrl)
       if (!doc.filePath) pathlessDocSavedPath = savedPath
-    } else if (saveAs || !savedPath) {
+    } else if (saveAs || !savedPath || doc.importedFrom) {
       // A never-saved document still called "Untitled" gets a name derived from its first heading
       const autoName =
         !doc.filePath && doc.fileName === t('appUntitledDocx') ? deriveAutoFileName(editor) : null
-      // Save As keeps the dialog; a new document's first save lands silently in the default
-      // folder. The source path identifies the desired password state to snapshot.
-      const result = saveAs
-        ? await window.desktop.saveDocxAs(autoName ?? doc.fileName, buffer, doc.filePath)
-        : await window.desktop.saveDocxNew(newDocName ?? autoName ?? doc.fileName, buffer)
+      // A converted-copy session (legacy .doc import) must not "save" into the
+      // temp directory that dies with the tab: its save routes through Save As,
+      // defaulting to a .docx sibling of the original. Save As keeps the dialog;
+      // a new document's first save lands silently in the default folder. The
+      // source path identifies the desired password state to snapshot.
+      const importSource = doc.importedFrom
+      const importName = importSource
+        ? `${
+            importSource
+              .replace(/\.[^.]+$/, '')
+              .split(/[\\/]/)
+              .pop() ?? 'document'
+          }.docx`
+        : null
+      const result =
+        saveAs || importSource
+          ? await window.desktop.saveDocxAs(
+              importName ?? autoName ?? doc.fileName,
+              buffer,
+              importSource ?? doc.filePath,
+            )
+          : await window.desktop.saveDocxNew(newDocName ?? autoName ?? doc.fileName, buffer)
       if (!result.ok) {
         if (result.error) {
           ctx.setStatus(t('appSaveFailed', { error: result.error }))
@@ -1072,6 +1090,8 @@ async function saveOnce(
               ...prev,
               filePath: savedPath,
               fileName: savedPath?.split(/[\\/]/).pop() ?? prev.fileName,
+              // the save landed on a real file: the import detour is over
+              importedFrom: undefined,
             }
           : prev,
       )
@@ -1115,6 +1135,8 @@ async function saveOnce(
             parsed: reparsed,
             filePath: savedPath,
             fileName: savedPath?.split(/[\\/]/).pop() ?? prev.fileName,
+            // the save landed on a real file: the import detour is over
+            importedFrom: undefined,
           }
         : prev,
     )

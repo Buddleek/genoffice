@@ -27,9 +27,13 @@ function normalizeText(text: string): string {
   return text.replace(/\r\n?/g, '\n').trim()
 }
 
+async function loadPptParser() {
+  return (await import('ppt-to-text')).default
+}
+
 /** Extract one readable text section per slide from a legacy PowerPoint 97-2003 file. */
 export async function pptToText(bytes: Uint8Array): Promise<string> {
-  const pptParser = (await import('ppt-to-text')).default
+  const pptParser = await loadPptParser()
   const presentation = pptParser.readBuffer(Buffer.from(bytes))
   const slides = pptParser.utils.to_text(presentation)
   return slides
@@ -38,4 +42,13 @@ export async function pptToText(bytes: Uint8Array): Promise<string> {
       return content ? `## Slide ${index + 1}\n${content}` : `## Slide ${index + 1}`
     })
     .join('\n\n')
+}
+
+/** Extract the raw per-slide text of a legacy PowerPoint 97-2003 file, one entry per slide. */
+export async function pptToSlideTexts(bytes: Uint8Array): Promise<string[]> {
+  const pptParser = await loadPptParser()
+  const presentation = pptParser.readBuffer(Buffer.from(bytes))
+  const slides: unknown = pptParser.utils.to_text(presentation)
+  if (!Array.isArray(slides)) throw new Error('legacy PPT text extraction returned no slides')
+  return slides.map((text) => normalizeText(String(text)))
 }

@@ -80,6 +80,7 @@ import type {
 import { parseFileToText } from '@genoffice/file-parse'
 import { convertHtmlToDocx } from '../../../../packages/html2docx/src'
 import { ElectronBrowserDriver } from '../../../../packages/html2docx/src/drivers/electron'
+import { convertDocBytesToDocx, writeDocImportCopy } from './doc-import'
 import {
   AiCreditsError,
   AiTimeoutError,
@@ -185,6 +186,7 @@ const isDev = !!process.env.ELECTRON_RENDERER_URL
 
 const tMain = createI18n({
   zh: {
+    legacyDocFailed: '无法转换此 Word 97-2003（.doc）文档',
     dlgOpenDoc: '打开文档',
     filterWord: 'Word 文档',
     dlgSaveAs: '另存为',
@@ -315,6 +317,7 @@ const tMain = createI18n({
     menuDocsHelp: 'GenOffice Docs 帮助',
   },
   en: {
+    legacyDocFailed: 'Could not convert this Word 97-2003 (.doc) document',
     dlgOpenDoc: 'Open Document',
     filterWord: 'Word Documents',
     dlgSaveAs: 'Save As',
@@ -447,6 +450,7 @@ const tMain = createI18n({
     menuDocsHelp: 'GenOffice Docs Help',
   },
   vi: {
+    legacyDocFailed: 'Không thể chuyển đổi tài liệu Word 97-2003 (.doc) này',
     dlgOpenDoc: 'Mở tài liệu',
     filterWord: 'Tài liệu Word',
     dlgSaveAs: 'Lưu dưới dạng',
@@ -580,6 +584,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Trợ giúp GenOffice Docs',
   },
   ja: {
+    legacyDocFailed: 'この Word 97-2003（.doc）文書を変換できませんでした',
     dlgOpenDoc: '文書を開く',
     filterWord: 'Word 文書',
     dlgSaveAs: '名前を付けて保存',
@@ -712,6 +717,7 @@ const tMain = createI18n({
     menuDocsHelp: 'GenOffice Docs ヘルプ',
   },
   ko: {
+    legacyDocFailed: '이 Word 97-2003(.doc) 문서를 변환하지 못했습니다',
     dlgOpenDoc: '문서 열기',
     filterWord: 'Word 문서',
     dlgSaveAs: '다른 이름으로 저장',
@@ -845,6 +851,7 @@ const tMain = createI18n({
     menuDocsHelp: 'GenOffice Docs 도움말',
   },
   fr: {
+    legacyDocFailed: 'Impossible de convertir ce document Word 97-2003 (.doc)',
     dlgOpenDoc: 'Ouvrir un document',
     filterWord: 'Documents Word',
     dlgSaveAs: 'Enregistrer sous',
@@ -979,6 +986,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Aide GenOffice Docs',
   },
   de: {
+    legacyDocFailed: 'Dieses Word 97-2003-Dokument (.doc) konnte nicht konvertiert werden',
     dlgOpenDoc: 'Dokument öffnen',
     filterWord: 'Word-Dokumente',
     dlgSaveAs: 'Speichern unter',
@@ -1113,6 +1121,7 @@ const tMain = createI18n({
     menuDocsHelp: 'GenOffice Docs-Hilfe',
   },
   es: {
+    legacyDocFailed: 'No se pudo convertir este documento de Word 97-2003 (.doc)',
     dlgOpenDoc: 'Abrir documento',
     filterWord: 'Documentos de Word',
     dlgSaveAs: 'Guardar como',
@@ -1247,6 +1256,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Ayuda de GenOffice Docs',
   },
   th: {
+    legacyDocFailed: 'ไม่สามารถแปลงเอกสาร Word 97-2003 (.doc) นี้',
     dlgOpenDoc: 'เปิดเอกสาร',
     filterWord: 'เอกสาร Word',
     dlgSaveAs: 'บันทึกเป็น',
@@ -1379,6 +1389,7 @@ const tMain = createI18n({
     menuDocsHelp: 'วิธีใช้ GenOffice Docs',
   },
   id: {
+    legacyDocFailed: 'Tidak dapat mengonversi dokumen Word 97-2003 (.doc) ini',
     dlgOpenDoc: 'Buka Dokumen',
     filterWord: 'Dokumen Word',
     dlgSaveAs: 'Simpan Sebagai',
@@ -1511,6 +1522,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Bantuan GenOffice Docs',
   },
   ru: {
+    legacyDocFailed: 'Не удалось преобразовать этот документ Word 97-2003 (.doc)',
     dlgOpenDoc: 'Открыть документ',
     filterWord: 'Документы Word',
     dlgSaveAs: 'Сохранить как',
@@ -1644,6 +1656,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Справка GenOffice Docs',
   },
   ar: {
+    legacyDocFailed: 'تعذّر تحويل مستند Word 97-2003 (.doc) هذا',
     dlgOpenDoc: 'فتح مستند',
     filterWord: 'مستندات Word',
     dlgSaveAs: 'حفظ باسم',
@@ -1777,6 +1790,7 @@ const tMain = createI18n({
     menuDocsHelp: 'تعليمات GenOffice Docs',
   },
   pt: {
+    legacyDocFailed: 'Não foi possível converter este documento do Word 97-2003 (.doc)',
     dlgOpenDoc: 'Abrir Documento',
     filterWord: 'Documentos do Word',
     dlgSaveAs: 'Salvar Como',
@@ -1910,6 +1924,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Ajuda do GenOffice Docs',
   },
   it: {
+    legacyDocFailed: 'Impossibile convertire questo documento Word 97-2003 (.doc)',
     dlgOpenDoc: 'Apri documento',
     filterWord: 'Documenti Word',
     dlgSaveAs: 'Salva con nome',
@@ -2043,6 +2058,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Guida di GenOffice Docs',
   },
   pl: {
+    legacyDocFailed: 'Nie można przekonwertować tego dokumentu Word 97-2003 (.doc)',
     dlgOpenDoc: 'Otwórz dokument',
     filterWord: 'Dokumenty programu Word',
     dlgSaveAs: 'Zapisz jako',
@@ -2176,6 +2192,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Pomoc GenOffice Docs',
   },
   cs: {
+    legacyDocFailed: 'Nepodařilo se převést tento dokument Word 97-2003 (.doc)',
     dlgOpenDoc: 'Otevřít dokument',
     filterWord: 'Dokumenty Wordu',
     dlgSaveAs: 'Uložit jako',
@@ -2309,6 +2326,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Nápověda GenOffice Docs',
   },
   nl: {
+    legacyDocFailed: 'Kan dit Word 97-2003-document (.doc) niet converteren',
     dlgOpenDoc: 'Document openen',
     filterWord: 'Word-documenten',
     dlgSaveAs: 'Opslaan als',
@@ -2442,6 +2460,7 @@ const tMain = createI18n({
     menuDocsHelp: 'GenOffice Docs Help',
   },
   ms: {
+    legacyDocFailed: 'Tidak dapat menukar dokumen Word 97-2003 (.doc) ini',
     dlgOpenDoc: 'Buka Dokumen',
     filterWord: 'Dokumen Word',
     dlgSaveAs: 'Simpan Sebagai',
@@ -2575,6 +2594,7 @@ const tMain = createI18n({
     menuDocsHelp: 'Bantuan GenOffice Docs',
   },
   he: {
+    legacyDocFailed: 'לא ניתן להמיר את מסמך Word 97-2003 (.doc) זה',
     dlgOpenDoc: 'פתיחת מסמך',
     filterWord: 'מסמכי Word',
     dlgSaveAs: 'שמירה בשם',
@@ -2706,6 +2726,7 @@ const tMain = createI18n({
     menuDocsHelp: 'עזרה של GenOffice Docs',
   },
   hi: {
+    legacyDocFailed: 'इस Word 97-2003 (.doc) दस्तावेज़ को बदला नहीं जा सका',
     dlgOpenDoc: 'दस्तावेज़ खोलें',
     filterWord: 'Word दस्तावेज़',
     dlgSaveAs: 'इस रूप में सहेजें',
@@ -2839,6 +2860,7 @@ const tMain = createI18n({
     menuDocsHelp: 'GenOffice Docs सहायता',
   },
   'zh-TW': {
+    legacyDocFailed: '無法轉換此 Word 97-2003（.doc）文件',
     dlgOpenDoc: '開啟文件',
     filterWord: 'Word 文件',
     dlgSaveAs: '另存新檔',
@@ -3360,6 +3382,10 @@ function canPdfWrite(wcId: number, filePath: string): boolean {
 const imageExportTemps = new Map<number, Set<string>>()
 const imageExportDirs = new Map<number, Set<string>>()
 
+// Legacy .doc imports open a converted .docx copy from an app-owned temp
+// directory (see doc-import.ts); the directory dies with the session.
+const docImportTemps = new Map<number, string>()
+
 function isImageExportTemp(wcId: number, filePath: string): boolean {
   return imageExportTemps.get(wcId)?.has(filePath) === true
 }
@@ -3391,6 +3417,9 @@ function dropDocWriter(wcId: number): void {
   for (const p of imageExportTemps.get(wcId) ?? []) void rm(p, { force: true })
   imageExportTemps.delete(wcId)
   imageExportDirs.delete(wcId)
+  const importTempDir = docImportTemps.get(wcId)
+  if (importTempDir) void rm(importTempDir, { recursive: true, force: true }).catch(() => {})
+  docImportTemps.delete(wcId)
   docDiskStates.delete(wcId)
   forgetLazyMediaOwner(wcId)
   // Destroyed renderers count as torn down too: window-close paths never run
@@ -3449,6 +3478,9 @@ export function teardownDocsRenderer(contents: WebContents): void {
   // must also lose its dialog-authorized PDF targets and disk-state cache
   docWritablePaths.delete(contents.id)
   pdfWritablePaths.delete(contents.id)
+  const importTempDir = docImportTemps.get(contents.id)
+  if (importTempDir) void rm(importTempDir, { recursive: true, force: true }).catch(() => {})
+  docImportTemps.delete(contents.id)
   docDiskStates.delete(contents.id)
   forgetDocPasswords(contents.id)
   if (!contents.isDestroyed()) contents.send('docs:teardown')
@@ -3537,8 +3569,33 @@ async function loadDocx(
   wcId: number,
   password?: string,
 ): Promise<OpenDocxResult> {
-  if (typeof filePath !== 'string' || !/\.docx$/i.test(filePath)) return null
+  if (typeof filePath !== 'string' || !/\.(docx|doc)$/i.test(filePath)) return null
   if (!existsSync(filePath)) return null
+  // A legacy Word 97-2003 .doc has no OOXML structure to patch: convert it once
+  // into a real .docx copy in a temp directory and open that (the original file
+  // stays untouched; the first save routes through Save As via importedFrom).
+  let importedFrom: string | undefined
+  if (/\.doc$/i.test(filePath)) {
+    try {
+      const raw = await readFile(filePath)
+      if (raw.length > MAX_OPEN_BYTES) {
+        const mb = MAX_OPEN_BYTES / 1024 / 1024
+        await showOpenError(wcId, `${basename(filePath)}: ${tm('errTooLarge', { mb })}`)
+        return null
+      }
+      const docx = await convertDocBytesToDocx(new Uint8Array(raw))
+      const copy = await writeDocImportCopy(filePath, docx)
+      docImportTemps.set(wcId, copy.tempDir)
+      importedFrom = filePath
+      filePath = copy.openPath
+    } catch (err) {
+      const detail = `${basename(filePath)}: ${tm('legacyDocFailed')}${
+        err instanceof Error ? `\n${err.message}` : ''
+      }`
+      await showOpenError(wcId, detail)
+      return null
+    }
+  }
   const size = (await stat(filePath)).size
   const lazy = await openLazyDocx(filePath, wcId)
   if ((lazy?.bytes.length ?? size) > MAX_OPEN_BYTES) {
@@ -3563,7 +3620,7 @@ async function loadDocx(
   // the archive keeps the on-disk original as-is (encrypted ones included: they
   // reopen with the user's password), so a bad save never loses the source file
   const hash = lazy?.hash ?? sha256Hex(original)
-  await archiveOriginal(filePath, hash, size)
+  if (!importedFrom) await archiveOriginal(filePath, hash, size)
   const recovery = await maybeRecoverDocBytes(filePath, plainBytes)
   let bytes = recovery.bytes
   let recovered = recovery.recovered
@@ -3578,10 +3635,13 @@ async function loadDocx(
     }
   }
   if (recovered) await adoptLazyMediaHashes(bytes, filePath, wcId)
-  pushRecent(filePath)
+  // a converted-copy session is not a file the user has on disk: the shell
+  // already recorded the original in recents, so only the write grant and the
+  // disk-state tracking make sense for the temp copy
+  if (!importedFrom) pushRecent(filePath)
   allowDocWrite(wcId, filePath)
   rememberOpenDoc(wcId, filePath)
-  if (fileOpenedHook) fileOpenedHook(wcId, filePath)
+  if (fileOpenedHook) fileOpenedHook(wcId, importedFrom ?? filePath)
   markDiskEncrypted(wcId, filePath, encrypted)
   // record the on-disk file, not the recovery copy: what matters is what save would overwrite
   await rememberDiskState(wcId, filePath, hash)
@@ -3592,6 +3652,7 @@ async function loadDocx(
     hash,
     encrypted,
     recovered: recovered || undefined,
+    importedFrom,
   }
 }
 
@@ -4285,7 +4346,7 @@ export function registerDocsIpc(): void {
   ipcMain.handle('docs:open', async (event) => {
     const result = await openDialog(event, {
       title: tm('dlgOpenDoc'),
-      filters: [{ name: tm('filterWord'), extensions: ['docx'] }],
+      filters: [{ name: tm('filterWord'), extensions: ['docx', 'doc'] }],
       properties: ['openFile'],
     })
     if (result.canceled || result.filePaths.length === 0) return null
