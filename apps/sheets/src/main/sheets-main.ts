@@ -64,6 +64,7 @@ import {
   AiTimeoutError,
   isAiNetworkError,
   isAiOverloadedError,
+  activeProvider,
   chatForProvider,
   defaultAiSettings,
   maxOutputTokensOf,
@@ -71,6 +72,7 @@ import {
   setAiUserAgent,
   setRescueFetch,
   streamForProvider,
+  type AiProviderConfig,
   type AiProviderId,
   type AiSettings,
   type AiStreamChunk,
@@ -3550,10 +3552,42 @@ export function registerSheetsAiIpc(): void {
   setRescueFetch((url, init) => net.fetch(url, init))
   setAiUserAgent(`GenOffice/${app.getVersion()}`)
 
+  /**
+   * The AI panel keeps its mount-time settings snapshot for the whole tab
+   * lifetime, so a provider configured in Settings afterwards never reaches an
+   * already-open panel. When the incoming selected provider is unusable, retry
+   * against the current settings file: its active provider (if any) takes the
+   * request. A usable incoming selection always wins.
+   */
+  function resolveRequestProvider(settings: {
+    provider: string
+    providers?: Record<string, AiProviderConfig | undefined>
+  }): { provider: AiProviderId; config: AiProviderConfig | undefined } {
+    // the zod-validated request settings are stringly typed (hand-edited files
+    // admit any provider id); the healed path always returns a catalog id
+    const selected = settings.provider as AiProviderId
+    const config = settings.providers?.[selected]
+    if (config && (selected === 'codex' || config.apiKey)) {
+      return { provider: selected, config }
+    }
+    const stored = resolveAiSettings(
+      readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {}),
+      defaultAiSettings(),
+    )
+    const healed = activeProvider(stored)
+    if (healed) return { provider: healed, config: stored.providers[healed] }
+    return { provider: selected, config }
+  }
+
   ipcMain.handle(IPC_CHANNELS.aiGetSettings, (event): AiSettings => {
     sessionFor(event)
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
     const settings = resolveAiSettings(stored, defaultAiSettings())
+    // heal the selection to a usable provider: a fresh install (default
+    // selection with no key) or a stale hand-edited file must not shadow a
+    // provider that IS configured elsewhere in the file
+    const active = activeProvider(settings)
+    if (active) settings.provider = active
     return settings
   })
 
@@ -3566,8 +3600,7 @@ export function registerSheetsAiIpc(): void {
   ipcMain.handle(IPC_CHANNELS.aiChat, async (event, input: unknown) => {
     sessionFor(event)
     const request = aiChatRequestSchema.parse(input)
-    const provider = request.settings.provider as AiProviderId
-    const config = request.settings.providers[provider]
+    const { provider, config } = resolveRequestProvider(request.settings)
     if (!config || (provider !== 'codex' && !config.apiKey)) {
       return {
         ok: false,
@@ -3594,8 +3627,7 @@ export function registerSheetsAiIpc(): void {
     const { requestId, system, messages } = request
     const tools = request.tools ?? []
     const maxTokens = request.maxTokens ?? maxOutputTokensOf(request.settings)
-    const provider = request.settings.provider as AiProviderId
-    const config = request.settings.providers[provider]
+    const { provider, config } = resolveRequestProvider(request.settings)
     const send = (chunk: AiStreamChunk) => {
       if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.aiStreamChunk, chunk)
     }

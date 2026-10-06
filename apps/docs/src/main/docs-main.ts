@@ -84,6 +84,7 @@ import { convertDocBytesToDocx, writeDocImportCopy } from './doc-import'
 import {
   AiCreditsError,
   AiTimeoutError,
+  activeProvider,
   isAiNetworkError,
   isAiOverloadedError,
   chatForProvider,
@@ -91,6 +92,7 @@ import {
   testMediaProvider,
   type AiMediaProviderConfig,
   type AiMediaProviderId,
+  type AiProviderId,
   type AiSearchProviderId,
   resolveAiSettings,
   maxOutputTokensOf,
@@ -3791,11 +3793,42 @@ const activeAiStreams = new Map<string, AbortController>()
  * register them exactly once for all window types (docs, sheets, home) —
  * sheets' standalone AI handlers use the same channel names.
  */
+/**
+ * The AI panel keeps its mount-time settings snapshot for the whole tab
+ * lifetime, so a provider configured in Settings afterwards never reaches an
+ * already-open panel. When the incoming selected provider is unusable, retry
+ * against the current settings file: its active provider (if any) takes the
+ * request. Only that fallback case — a usable incoming selection always wins,
+ * so per-request renderer tweaks (e.g. a different model) keep working.
+ */
+function resolveRequestProvider(settings: AiSettings): {
+  provider: AiProviderId
+  config: AiSettings['providers'][AiProviderId]
+} {
+  const selected = settings.provider
+  const config = settings.providers?.[selected]
+  if (config && (selected === 'codex' || config.apiKey)) {
+    return { provider: selected, config }
+  }
+  const stored = resolveAiSettings(
+    readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {}),
+    defaultAiSettings(),
+  )
+  const healed = activeProvider(stored)
+  if (healed) return { provider: healed, config: stored.providers[healed] }
+  return { provider: selected, config }
+}
+
 export function registerAiIpc(): void {
   app.once('before-quit', shutdownCodexAppServers)
   ipcMain.handle('ai:get-settings', async (): Promise<AiSettings> => {
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
     const settings = resolveAiSettings(stored, defaultAiSettings())
+    // heal the selection to a usable provider: a fresh install (default
+    // selection with no key) or a stale hand-edited file must not shadow a
+    // provider that IS configured elsewhere in the file
+    const active = activeProvider(settings)
+    if (active) settings.provider = active
     return settings
   })
 
@@ -3835,8 +3868,7 @@ export function registerAiIpc(): void {
     const { requestId, system, messages } = request
     const tools = request.tools ?? []
     const maxTokens = request.maxTokens ?? maxOutputTokensOf(settings)
-    const provider = settings.provider
-    const config = settings.providers?.[provider]
+    const { provider, config } = resolveRequestProvider(settings)
     const send = (chunk: AiStreamChunk) => {
       if (!event.sender.isDestroyed()) event.sender.send('ai:stream-chunk', chunk)
     }
@@ -4016,8 +4048,7 @@ export function registerAiIpc(): void {
     const settings = sanitizeAiSettings(request.settings)
     if (!settings) return { ok: false, error: 'invalid AI settings payload' }
     const { system, user } = request
-    const provider = settings.provider
-    const config = settings.providers?.[provider]
+    const { provider, config } = resolveRequestProvider(settings)
     if (!config || (provider !== 'codex' && !config.apiKey)) {
       return {
         ok: false,

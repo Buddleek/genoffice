@@ -125,7 +125,7 @@ describe('vision capability fallback', () => {
   it('does not send screenshots to text-only models under a vision-capable provider', () => {
     const settings = defaultAiSettings()
     settings.provider = 'deepseek'
-    settings.providers.deepseek.model = 'deep-seek-v4.1-flash'
+    settings.providers.deepseek.model = 'deep-seek-v4-pro' // the one text-only DeepSeek id
     expect(settingsSupportVision(settings)).toBe(false)
     settings.provider = 'anthropic'
     settings.providers.anthropic.model = 'claude-opus-4-7'

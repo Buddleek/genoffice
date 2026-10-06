@@ -18,6 +18,7 @@ import { join } from 'node:path'
 import {
   AiCreditsError,
   AiTimeoutError,
+  activeProvider,
   isAiNetworkError,
   isAiOverloadedError,
   defaultAiSettings,
@@ -27,6 +28,7 @@ import {
   setAiUserAgent,
   setRescueFetch,
   streamForProvider,
+  type AiProviderId,
   type AiSettings,
   type AiStreamChunk,
   type AiStreamRequest,
@@ -116,8 +118,38 @@ export function registerAiIpc(): void {
   ipcMain.handle('ai:get-settings', (): AiSettings => {
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(AI_SETTINGS_PATH(), {})
     const settings = resolveAiSettings(stored, defaultAiSettings())
+    // heal the selection to a usable provider: a fresh install (default
+    // selection with no key) or a stale hand-edited file must not shadow a
+    // provider that IS configured elsewhere in the file
+    const active = activeProvider(settings)
+    if (active) settings.provider = active
     return settings
   })
+
+  /**
+   * The AI panel keeps its mount-time settings snapshot for the whole tab
+   * lifetime, so a provider configured in Settings afterwards never reaches an
+   * already-open panel. When the incoming selected provider is unusable, retry
+   * against the current settings file: its active provider (if any) takes the
+   * request. A usable incoming selection always wins.
+   */
+  function resolveRequestProvider(settings: AiSettings): {
+    provider: AiProviderId
+    config: AiSettings['providers'][AiProviderId]
+  } {
+    const selected = settings.provider
+    const config = settings.providers?.[selected]
+    if (config && (selected === 'codex' || config.apiKey)) {
+      return { provider: selected, config }
+    }
+    const stored = resolveAiSettings(
+      readJson<Partial<AiSettings> & LegacyAiSettings>(AI_SETTINGS_PATH(), {}),
+      defaultAiSettings(),
+    )
+    const healed = activeProvider(stored)
+    if (healed) return { provider: healed, config: stored.providers[healed] }
+    return { provider: selected, config }
+  }
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
     // SECURITY.md: payloads are schema-checked in the main process. The settings
@@ -151,8 +183,7 @@ export function registerAiIpc(): void {
     const { requestId, system, messages } = request
     const tools = request.tools ?? []
     const maxTokens = request.maxTokens ?? maxOutputTokensOf(settings)
-    const provider = settings.provider
-    const config = settings.providers?.[provider]
+    const { provider, config } = resolveRequestProvider(settings)
     const send = (chunk: AiStreamChunk) => {
       if (!event.sender.isDestroyed()) event.sender.send('ai:stream-chunk', chunk)
     }
